@@ -103,6 +103,117 @@ The tracked `.env` file contains local development defaults, passwords, and othe
 
 Do not store deployment secrets in `.env`. Configure them as described in the [FastAPI Cloud deployment guide](./deployment.md) or the [Docker Compose deployment guide](./deployment-docker-compose.md).
 
+## How to Add a New Entity
+
+The backend models live in `backend/app/models.py`. The project pattern is to define one SQLModel for the database table, a create/update schema, and a public response schema.
+
+A typical entity follows this pattern:
+
+```python
+class WidgetBase(SQLModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class WidgetCreate(WidgetBase):
+    pass
+
+
+class WidgetUpdate(SQLModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class Widget(WidgetBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    owner: User | None = Relationship(back_populates="widgets")
+
+
+class WidgetPublic(WidgetBase):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+```
+
+When you add a new entity, also update the related code in the same order:
+
+1. Add the SQLModel and relationships in `backend/app/models.py`.
+2. Add any database queries or helper functions in `backend/app/crud.py`.
+3. Add a route file in `backend/app/api/routes/`, for example `widgets.py`.
+4. Register the router in `backend/app/api/main.py`.
+5. Create and apply a database migration with Alembic under `backend/app/alembic/versions/`.
+6. Add or update backend tests in `backend/tests/`.
+
+If the entity should be visible in the generated frontend client, regenerate the client after the backend schema changes with:
+
+```bash
+bash ./scripts/generate-client.sh
+```
+
+## How to Add a New Route
+
+The project uses file-based API routes in `backend/app/api/routes/` and file-based frontend routes in `frontend/src/routes/`.
+
+### Backend API Route
+
+Create a new file such as `backend/app/api/routes/widgets.py` and define a router similar to the existing `items` route:
+
+```python
+from fastapi import APIRouter, HTTPException
+
+from app.api.deps import CurrentUser, SessionDep
+from app.crud import create_widget
+from app.models import Widget, WidgetCreate, WidgetPublic
+
+router = APIRouter(prefix="/widgets", tags=["widgets"])
+
+
+@router.get("/", response_model=list[WidgetPublic])
+def read_widgets(session: SessionDep, current_user: CurrentUser) -> list[Widget]:
+    return get_widgets(session=session, current_user=current_user)
+
+
+@router.post("/", response_model=WidgetPublic)
+def create_widget_route(
+    *, session: SessionDep, current_user: CurrentUser, widget_in: WidgetCreate
+) -> Widget:
+    return create_widget(session=session, current_user=current_user, widget_in=widget_in)
+```
+
+Then include it in `backend/app/api/main.py`:
+
+```python
+from app.api.routes import widgets
+
+api_router.include_router(widgets.router)
+```
+
+The route should use `SessionDep` for the DB session, `CurrentUser` for auth checks, and a `response_model` so FastAPI serializes the data consistently.
+
+### Frontend Route
+
+The frontend uses `@tanstack/react-router` with file-based routes under `frontend/src/routes/`. To add a page or route, create a file matching the route structure, for example `frontend/src/routes/_layout/widgets.tsx`.
+
+The route file should follow the same pattern as the existing item pages:
+
+```tsx
+import { createFileRoute } from "@tanstack/react-router"
+
+export const Route = createFileRoute("/_layout/widgets")({
+  component: Widgets,
+})
+
+function Widgets() {
+  return <div>Widgets</div>
+}
+```
+
+If the page needs data from the API, use the generated client and `useSuspenseQuery` or `useQuery` the same way as `frontend/src/routes/_layout/items.tsx` does.
+
+For backend changes that affect the OpenAPI spec, regenerate the frontend client before using new route data:
+
+```bash
+bash ./scripts/generate-client.sh
+```
+
 ## Pre-commit Hooks and Code Linting
 
 The project uses [prek](https://prek.j178.dev/), a modern alternative to [pre-commit](https://pre-commit.com/), for code linting and formatting.
