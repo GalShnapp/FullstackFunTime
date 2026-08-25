@@ -79,6 +79,12 @@ General development docs: [development.md](./development.md).
 
 This includes the local FastAPI and Vite workflow, Docker Compose services, `.env` configuration, and more.
 
+## Junior Developer Guide
+
+See [junior-developer-guide.md](./junior-developer-guide.md) for practical
+guides on adding an entity, building the application, and understanding how the
+technology stack fits together.
+
 ## Release Notes
 
 Check the file [release-notes.md](./release-notes.md).
